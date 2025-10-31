@@ -51,7 +51,7 @@ const calculateFare = (serviceType, distanceKm, durationMin) => {
 
 
 /**
- * 處理 API A87 請求：獲取路線與車資估算。
+ * 處理 API 請求：獲取路線與車資估算。
  */
 export const estimateRouteAndFare = async (req, res) => {
     const { pickup, dropoff } = req.body;
