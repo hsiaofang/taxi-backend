@@ -5,20 +5,18 @@ import { calculatePreciseEta } from '../utils/geoUtils.js';
 
 /**
  * 派單
- * @param {object} order - 待指派的訂單物件 (包含 pickup.lat/lng)
+ * @param {object} order
  * @returns {Promise<object>} - 指派的司機物件
  */
-async function findAndAssignDriver(order) {
+async function assignDriver(order) {
     const pickupLocation = `${order.pickup.lng},${order.pickup.lat}`;
-    const SEARCH_RADIUS_KM = 5; // 初次搜索半徑：5 公里
-
-    console.log(`[Dispatch] 開始在 ${SEARCH_RADIUS_KM} km 範圍內搜索可用司機...`);
+    const SEARCH_RADIUS_KM = 5;
 
     const nearbyDrivers = await redisGeoClient.getNearbyDrivers(
         order.pickup.lat,
         order.pickup.lng,
         SEARCH_RADIUS_KM,
-        { status: 'AVAILABLE', type: order.vehicleType } // 必須是可用狀態且車型匹配
+        { status: 'AVAILABLE' }
     );
 
     if (nearbyDrivers.length === 0) {
@@ -26,31 +24,28 @@ async function findAndAssignDriver(order) {
         throw new Error('附近暫無可用車輛，請稍後再試。');
     }
 
-    let candidateDrivers = [];
+    let allDrivers = [];
     const driverOrigins = nearbyDrivers.map(d => `${d.lng},${d.lat}`);
     const etas = await calculateEta(driverOrigins, pickupLocation);
 
-    // 3. 整合數據並計算分數
     for (let i = 0; i < nearbyDrivers.length; i++) {
         const driver = nearbyDrivers[i];
         const etaData = etas[i];
 
-        // 確保 ETA 有效，避免網路錯誤導致數據不全
         if (etaData.status !== 'OK') continue; 
         
-        // 4. 獲取司機永久數據 (評分、取消率等)
+        // 獲取司機數據 (評分、取消率等)
         const driverProfile = await dbClient.getDriverProfile(driver.id); 
 
-        // 5. 執行派單演算法 (Scoring Algorithm)
-        const score = this._calculateDispatchScore({
-            distanceMeters: etaData.distance.value,
-            durationSeconds: etaData.duration.value,
+        // 執行派單演算法
+        const score = this._calculateScore({
+            distance: etaData.distance.value,
+            duration: etaData.duration.value,
             rating: driverProfile.rating,
-            cancellationRate: driverProfile.cancellationRate,
-            // 🚨 這裡會加入您業務邏輯中所有影響派單優先級的因素
+            cancelRate: driverProfile.cancellationRate,
         });
 
-        candidateDrivers.push({
+        allDrivers.push({
             id: driver.id,
             etaMin: Math.ceil(etaData.duration.value / 60),
             score: score,
@@ -63,14 +58,10 @@ async function findAndAssignDriver(order) {
         throw new Error('儘管有司機，但無法計算出有效的路線和 ETA。');
     }
 
-    // ----------------------------------------------------
-    // III. 最終決策與通知 (Final Decision & Notification)
-    // ----------------------------------------------------
+    // 選擇分數最高的司機（或最快到達的）
+    allDrivers.sort((a, b) => a.etaMin - b.etaMin);
     
-    // 6. 選擇分數最高的司機（或最快到達的）
-    // 🚨 最常見的策略是選擇 ETA 最短的
-    candidateDrivers.sort((a, b) => a.etaMin - b.etaMin);
-    const assignedDriver = candidateDrivers[0];
+    const assignedDriver = allDrivers
 
     // 7. 更新司機狀態為「ON_TRIP」或「PICKING_UP」 (原子操作)
     await redisGeoClient.updateDriverStatus(assignedDriver.id, 'PICKING_UP');
@@ -91,21 +82,36 @@ async function findAndAssignDriver(order) {
 }
 
 /**
- * 內部函數：計算派單分數 (Scoring Algorithm)
- * 🚨 這是業務競爭力的核心機密，邏輯非常複雜
+ * 更新取消率
  */
-function _calculateDispatchScore({ distanceMeters, durationSeconds, rating, cancellationRate }) {
-    // 基礎分：距離越近分數越高
-    let score = 1000 - (distanceMeters * 0.1); 
+async function updateCancellationRate(driverId, isCanceled) {
+    // 1. 取得當前總訂單數和取消數
+    // 2. 執行 SQL 事務更新這兩個計數器
+    // 3. 重新計算新的 cancellationRate = (new_cancel_count / new_total_count)
+    // 4. UPDATE driver_profiles SET cancellation_rate = [new_rate] WHERE driver_id = [Driver_ID];
+}
 
-    // 懲罰項：時間越長懲罰越大
-    score -= (durationSeconds * 0.5);
+/**
+ * 內部函數：計算派單分數
+ * score = Base - (distance * 0.01)    // 距離懲罰
+                - (duration * 0.1)          // 時間懲罰
+                + (rating * 50)             // 評分獎勵
+                - (cancellationRate * 100)  // 取消率懲罰
+                + (dynamicPremiumRate * 150)// 溢價獎勵 (高權重)
+                + (50 * dutyFactor)         // 排班獎勵 (中低權重)
+ */
+function _calculateScore({ distance, duration, rating, cancellRate }) {
+    // 距離越近分數越高
+    let score = 1000 - (distance * 0.1); 
 
-    // 獎勵項：評分高則加分
+    // 時間越長懲罰越大
+    score -= (duration * 0.5);
+
+    // 評分高則加分
     score += (rating * 50);
 
-    // 懲罰項：取消率高則扣分
-    score -= (cancellationRate * 100);
+    // 取消率高則扣分
+    score -= (cancellRate * 100);
 
     // 實際會加入：動態價格溢價、司機的排班時間等因素
     return score;
