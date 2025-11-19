@@ -8,14 +8,14 @@
 const winston = require('winston');
 const { isEmpty, isPlainObject, isArray, flow, forEach } = require('lodash');
 const redact = require('redact-secrets');
-const Redactyl = require('redactyl.js');
+// const Redactyl = require('redactyl.js'); // 【已刪除】Redactyl 庫的引用
 const { serializeError } = require('serialize-error');
 const config = require('../config');
 const { LOG_PREFIX } = require('../constants');
 const { combine, timestamp: timestampFormatter, printf } = winston.format;
 /**
  * 替換敏感數據的佔位符
- *  Redacted message placeholder value
+ *  Redacted message placeholder value
  *
  * @private
  */
@@ -54,32 +54,11 @@ const prettyPrint = json => JSON.stringify(json, undefined, 2);
  * @private
  */
 const redactSecrets = obj => redact(REDACTED_MESSAGE).map(obj);
+
 /**
- * 定義要遮蔽的敏感數據列表
- * List of Personally Identifiable Information (PII) that we want to filter from the logs.
- */
-const PIIAttributes = [
-  'Authorization',
-  'full_name',
-  'email',
-  'phone',
-  'address',
-  'address_2',
-  'city',
-  'postal_code',
-  'country_code',
-  'country_subregion_code',
-  'ip_address',
-];
-const redactyl = new Redactyl({
-  properties: PIIAttributes,
-});
-/**
- * 
  * Deeply iterate over an object and redact PII values by replacing
  * them with a `REDACTED_MESSAGE` const string.
- * 
- * @param {object} data Object with potential PII data
+ * * @param {object} data Object with potential PII data
  *
  * @returns {object} New object with PII data redacted
  *
@@ -96,7 +75,7 @@ const filterLogData = data => {
   }
   // TODO: Look for another alternative for format error messages (formatErrorMessage)
   return isPlainObject(data)
-    ? flow([rawData => redactSecrets(rawData), redactedData => redactyl.redact(redactedData)])(data)
+    ? flow([rawData => redactSecrets(rawData)])(data) 
     : data;
 };
 /**
@@ -115,8 +94,7 @@ const processLogData = flow([filterLogData, prettyPrint]);
  *
  * If given a JSON-stringifiable object, it redacts any potential secrets
  * and pretty prints; otherwise, it simply passes through the message.
- * 
- * @param {*} message Log message
+ * * @param {*} message Log message
  *
  * @returns {string} Formatted message
  * @private
@@ -313,7 +291,7 @@ function log(message, { level = 'info', meta = {}, data = {} } = {}) {
   } else if (!isEmpty(data)) {
     message = mergeMessageAndData(message, data);
   }
-  return logger.log(level, { message, meta: config.get('verbose') && filterLogData(meta) });
+  return logger.log(level, { message, meta: config.get('verbose') && filterLogData(meta) }); 
 }
 module.exports = {
   log,

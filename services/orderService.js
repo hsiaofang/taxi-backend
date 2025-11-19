@@ -63,32 +63,18 @@ async function assignDriver(order) {
     
     const assignedDriver = allDrivers
 
-    // 7. 更新司機狀態為「ON_TRIP」或「PICKING_UP」 (原子操作)
     await redisGeoClient.updateDriverStatus(assignedDriver.id, 'PICKING_UP');
     
-    // 8. 🔔 向該司機的 App 推播新訂單訊息 (使用 driverService)
     await driverService.notifyDriverOfNewOrder(assignedDriver.id, order);
 
     console.log(`[Dispatch] 成功指派給司機 ${assignedDriver.id}。ETA: ${assignedDriver.etaMin} 分鐘。`);
     
-    // 9. 返回指派結果
     return {
         id: assignedDriver.id,
         name: assignedDriver.profile.name,
         etaToPassenger: assignedDriver.etaMin,
         currentLocation: assignedDriver.currentLocation,
-        // 其他重要資訊...
     };
-}
-
-/**
- * 更新取消率
- */
-async function updateCancellationRate(driverId, isCanceled) {
-    // 1. 取得當前總訂單數和取消數
-    // 2. 執行 SQL 事務更新這兩個計數器
-    // 3. 重新計算新的 cancellationRate = (new_cancel_count / new_total_count)
-    // 4. UPDATE driver_profiles SET cancellation_rate = [new_rate] WHERE driver_id = [Driver_ID];
 }
 
 /**
