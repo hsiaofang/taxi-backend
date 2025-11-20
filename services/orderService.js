@@ -3,6 +3,53 @@ import redisGeoClient from '../cache/redisGeoClient.js';
 import driverService from './driverService.js';
 import { calculatePreciseEta } from '../utils/geoUtils.js';
 
+const axios = require('axios');
+
+/**
+ * 透過 LINE Access Token 驗證其有效性，並取得用戶的 LINE userId。
+ * @param {string} lineToken
+ * @returns {Promise<string>}
+ * @throws {Error}
+ */
+async function userToken(lineToken) {
+    const LINE_PROFILE_API = 'https://api.line.me/v2/profile';
+    
+    try {
+        const response = await axios.get(LINE_PROFILE_API, {
+            headers: {
+                'Authorization': `Bearer ${lineToken}`,
+            },
+        });
+
+        const lineProfile = response.data;
+        const lineUserId = lineProfile.userId; 
+
+        const systemUserId = await findUserId(lineUserId); 
+        if (!systemUserId) {
+            // 引導用戶完成綁定流程
+            throw new Error('用戶尚未在系統中註冊或綁定 LINE 帳號。');
+        }
+
+        return systemUserId; // 返回您系統中的 userId
+
+    } catch (error) {
+        if (error.response && error.response.status === 401) {
+            throw new Error('LINE Token 無效或已過期。');
+        }
+        console.error('LINE API 驗證失敗:', error.message);
+        throw new Error('LINE 身份驗證失敗。');
+    }
+}
+
+// 模擬查找系統用戶 ID 的函數
+async function findUserId(lineUserId) {
+    // 💡 這裡應該是您的資料庫查找邏輯，根據 LINE User ID 找到您系統中的 User ID
+    // 這裡我們假設 LINE ID 就是您系統中的 username (如您註冊邏輯所示)
+    // 由於我們看不到您的資料庫模型，暫時返回 LINE ID 本身作為系統 ID
+    // 實際應用中，請用 lineUserId 查找您的資料庫，並返回對應的 systemUserId
+    return lineUserId; 
+}
+
 /**
  * 派單
  * @param {object} order
@@ -102,3 +149,9 @@ function _calculateScore({ distance, duration, rating, cancellRate }) {
     // 實際會加入：動態價格溢價、司機的排班時間等因素
     return score;
 }
+
+
+module.exports = {
+    userToken,
+    assignDriver
+};

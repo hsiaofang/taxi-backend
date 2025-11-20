@@ -24,8 +24,7 @@ export const initWebSocket = (httpServer) => {
         */  
         socket.on('authenticate', async (token) => {
             try {
-                // 實際應用中：通過 JWT 或其他方式驗證 Token，並從中解析出 userId
-                const userId = await orderService.verifyUserToken(token); // 假設的驗證函數
+                const userId = await orderService.userToken(token);
                 
                 socket.data.userId = userId;
                 socket.join(`user_${userId}`);
